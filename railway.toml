@@ -1,0 +1,2 @@
+[start]
+cmd = "python -u poll_friend_list.py"
