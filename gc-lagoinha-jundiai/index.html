@@ -126,6 +126,19 @@
       font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all .2s;
     }
     .btn-geo:hover { border-style: solid; border-color: var(--text); color: var(--text); }
+    .suggest {
+      position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20;
+      display: none; list-style: none; padding: 6px; max-height: 340px; overflow-y: auto;
+      background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 18px 40px -22px rgba(0,0,0,0.4);
+    }
+    .suggest.show { display: block; }
+    .suggest li[role="option"] { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 9px; cursor: pointer; }
+    .search-input-wrap .suggest .icon { position: static; transform: none; margin-top: 2px; color: var(--muted-2); }
+    .suggest li[aria-selected="true"], .suggest li[role="option"]:hover { background: var(--surface-2); }
+    .sug-t { font-size: 14px; font-weight: 600; line-height: 1.35; }
+    .sug-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .suggest .credit { padding: 6px 12px 4px; font-size: 10.5px; color: var(--muted-2); text-align: right; }
     .search-hint { font-size: 12px; color: var(--muted-2); margin-top: 10px; text-align: center; }
 
     .steps { border-top: 1px solid var(--line); }
@@ -295,11 +308,13 @@
 
     <div class="search-box">
       <form class="search-row" id="search-form">
-        <label class="search-input-wrap">
+        <div class="search-input-wrap">
           <svg class="icon"><use href="#i-pin"/></svg>
-          <input class="input" id="address-input" type="text" autocomplete="street-address"
-                 placeholder="Seu endereço, bairro ou CEP" aria-label="Seu endereço, bairro ou CEP" />
-        </label>
+          <input class="input" id="address-input" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Seu endereço, bairro ou CEP" aria-label="Seu endereço, bairro ou CEP"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugestoes" />
+          <ul class="suggest" id="sugestoes" role="listbox"></ul>
+        </div>
         <button class="btn-primary" id="btn-buscar" type="submit">Buscar</button>
       </form>
       <div class="divider">ou</div>
@@ -375,6 +390,7 @@
 <footer>Lagoinha Jundiaí · Grupos de Crescimento</footer>
 <div class="toast" id="toast" role="status"></div>
 
+<script src="config.js"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════
    CONFIGURAÇÃO
@@ -389,6 +405,10 @@ const CONFIG = {
 
   // false = mostra só bairro/cidade; o endereço completo é passado pelo líder no WhatsApp.
   MOSTRAR_ENDERECO: true,
+
+  // Chave pública do Mapbox, lida do arquivo config.js (que não vai para o GitHub).
+  // Sem ela, o site usa só o OpenStreetMap.
+  MAPBOX_TOKEN: window.GC_CONFIG?.MAPBOX_TOKEN || '',
 
   CIDADE_PADRAO: 'Jundiaí',
   CENTRO: { lat: -23.1864, lng: -46.8842 },
@@ -627,6 +647,24 @@ async function localizarTodos(onProgress) {
   await Promise.all([trabalhador(), trabalhador(), trabalhador()]);
 }
 
+// Mapbox só para o endereço de quem visita: busca temporária, nada é salvo.
+async function mapboxBuscar(q, limite = 5, signal) {
+  const [x1, y1, x2, y2] = CONFIG.REGIAO;
+  const params = new URLSearchParams({
+    q, country: 'br', language: 'pt', limit: limite, autocomplete: 'true',
+    types: 'address,street,neighborhood,locality,place,postcode',
+    proximity: `${CONFIG.CENTRO.lng},${CONFIG.CENTRO.lat}`, bbox: `${x1},${y1},${x2},${y2}`,
+    access_token: CONFIG.MAPBOX_TOKEN,
+  });
+  const r = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?${params}`, { signal });
+  if (!r.ok) throw new Error('Mapbox ' + r.status);
+  return ((await r.json()).features || []).map((f) => ({
+    titulo: f.properties.name,
+    sub: (f.properties.place_formatted || '').replace(/,\s*Brasil$/i, ''),
+    pos: { lat: f.properties.coordinates.latitude, lng: f.properties.coordinates.longitude },
+  }));
+}
+
 async function localizarUsuario(texto) {
   let q = texto.trim();
   const cep = q.replace(/\D/g, '');
@@ -635,6 +673,10 @@ async function localizarUsuario(texto) {
       const d = await (await fetch(`https://viacep.com.br/ws/${cep}/json/`)).json();
       if (!d.erro) q = [d.logradouro, d.bairro, d.localidade, d.uf].filter(Boolean).join(', ');
     } catch {}
+  }
+  if (CONFIG.MAPBOX_TOKEN) {
+    try { const [r] = await mapboxBuscar(q, 1); if (r) return r.pos; }
+    catch (e) { console.warn('Mapbox indisponível, usando OpenStreetMap.', e); }
   }
   const temCidade = CIDADES.some((c) => norm(q).includes(norm(c)));
   const tentativas = temCidade ? [q] : [`${q}, ${CONFIG.CIDADE_PADRAO}, SP`, q];
@@ -752,6 +794,7 @@ function ocupado(on) {
 
 async function buscarEndereco(e) {
   e.preventDefault();
+  fecharSugestoes();
   const texto = $('#address-input').value.trim();
   if (!texto) { toast('Digite seu endereço, bairro ou CEP.'); $('#address-input').focus(); return; }
   ocupado(true);
@@ -764,6 +807,16 @@ async function buscarEndereco(e) {
     }
     await prepararDistancias();
     aplicarPosicao(pos, `A partir de “${texto}”`);
+  } catch {
+    $('#nearby-grid').innerHTML = `<div class="state"><h3>Sem conexão</h3><p>Verifique sua internet e tente de novo.</p></div>`;
+  } finally { ocupado(false); }
+}
+
+async function irParaSugestao(sug) {
+  ocupado(true);
+  try {
+    await prepararDistancias();
+    aplicarPosicao(sug.pos, `A partir de “${sug.titulo}”`);
   } catch {
     $('#nearby-grid').innerHTML = `<div class="state"><h3>Sem conexão</h3><p>Verifique sua internet e tente de novo.</p></div>`;
   } finally { ocupado(false); }
@@ -797,6 +850,61 @@ function limparBusca() {
   renderLista();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+/* Sugestões de endereço enquanto a pessoa digita (Mapbox) */
+let sugestoes = [], sugIdx = -1, sugTimer, sugCtrl;
+const inputEnd = $('#address-input'), listaSug = $('#sugestoes');
+
+function fecharSugestoes() {
+  clearTimeout(sugTimer); sugCtrl?.abort();
+  sugestoes = []; sugIdx = -1;
+  listaSug.classList.remove('show');
+  inputEnd.setAttribute('aria-expanded', 'false');
+}
+
+function desenharSugestoes() {
+  if (!sugestoes.length) { fecharSugestoes(); return; }
+  listaSug.innerHTML = sugestoes.map((s, i) => `
+    <li role="option" id="sug-${i}" data-i="${i}" aria-selected="${i === sugIdx}">
+      ${icon('pin')}<div><div class="sug-t">${esc(s.titulo)}</div>${s.sub ? `<div class="sug-s">${esc(s.sub)}</div>` : ''}</div>
+    </li>`).join('') + `<li class="credit" aria-hidden="true">Busca por Mapbox</li>`;
+  listaSug.classList.add('show');
+  inputEnd.setAttribute('aria-expanded', 'true');
+  inputEnd.setAttribute('aria-activedescendant', sugIdx >= 0 ? `sug-${sugIdx}` : '');
+}
+
+function escolherSugestao(i) {
+  const s = sugestoes[i]; if (!s) return;
+  inputEnd.value = s.sub ? `${s.titulo}, ${s.sub}` : s.titulo;
+  fecharSugestoes();
+  irParaSugestao(s);
+}
+
+inputEnd.addEventListener('input', () => {
+  clearTimeout(sugTimer);
+  const q = inputEnd.value.trim();
+  if (!CONFIG.MAPBOX_TOKEN || q.length < 3 || /^\d{5}-?\d{0,3}$/.test(q)) { fecharSugestoes(); return; }
+  sugTimer = setTimeout(async () => {
+    sugCtrl?.abort(); sugCtrl = new AbortController();
+    try { sugestoes = await mapboxBuscar(q, 5, sugCtrl.signal); sugIdx = -1; desenharSugestoes(); }
+    catch (e) { if (e.name !== 'AbortError') fecharSugestoes(); }
+  }, 250);
+});
+inputEnd.addEventListener('keydown', (e) => {
+  if (!sugestoes.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    sugIdx = (sugIdx + (e.key === 'ArrowDown' ? 1 : -1) + sugestoes.length) % sugestoes.length;
+    desenharSugestoes();
+  } else if (e.key === 'Enter' && sugIdx >= 0) {
+    e.preventDefault(); escolherSugestao(sugIdx);
+  } else if (e.key === 'Escape') fecharSugestoes();
+});
+inputEnd.addEventListener('blur', () => setTimeout(fecharSugestoes, 150));
+listaSug.addEventListener('mousedown', (e) => {
+  const li = e.target.closest('[data-i]'); if (!li) return;
+  e.preventDefault(); escolherSugestao(+li.dataset.i);
+});
 
 /* ════════════════════════════════════════════════════════════════
    PAINEL DE COORDENADAS  (abra o site com ?admin)
