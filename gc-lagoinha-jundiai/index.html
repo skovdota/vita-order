@@ -307,7 +307,7 @@
     </p>
 
     <div class="search-box">
-      <form class="search-row" id="search-form">
+      <div class="search-row" role="search">
         <div class="search-input-wrap">
           <svg class="icon"><use href="#i-pin"/></svg>
           <input class="input" id="address-input" type="text" autocomplete="off" spellcheck="false"
@@ -315,8 +315,8 @@
                  role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sugestoes" />
           <ul class="suggest" id="sugestoes" role="listbox"></ul>
         </div>
-        <button class="btn-primary" id="btn-buscar" type="submit">Buscar</button>
-      </form>
+        <button class="btn-primary" id="btn-buscar" type="button">Buscar</button>
+      </div>
       <div class="divider">ou</div>
       <button class="btn-geo" id="btn-geo" type="button">
         <svg class="icon"><use href="#i-target"/></svg>
@@ -612,7 +612,7 @@ async function geocodificar(q) {
       const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&bounded=1&viewbox=${x1},${y2},${x2},${y1}&q=${encodeURIComponent(q)}`, { headers: { 'Accept-Language': 'pt-BR' } });
       const d = (await r.json())[0];
       if (d) pos = { lat: +d.lat, lng: +d.lon };
-    } catch { return null; }
+    } catch { throw new Error('Serviço de mapas inacessível'); }
   }
   if (pos && !dentroDaRegiao(pos)) pos = null;
   geoCache[q] = pos; salvarCache();
@@ -632,7 +632,7 @@ async function localizarGC(gc) {
   const cidade = `${gc.cidade}, SP`;
   const tentativas = [`${enderecoParaMapa(gc)}, ${cidade}`, `${gc.bairro}, ${cidade}`];
   for (const q of tentativas) {
-    const p = await geocodificar(q);
+    const p = await geocodificar(q).catch(() => null);
     if (p) { gc.pos = p; gc.aproximado = q !== tentativas[0]; return p; }
   }
   return null;
@@ -808,7 +808,7 @@ async function buscarEndereco(e) {
     await prepararDistancias();
     aplicarPosicao(pos, `A partir de “${texto}”`);
   } catch {
-    $('#nearby-grid').innerHTML = `<div class="state"><h3>Sem conexão</h3><p>Verifique sua internet e tente de novo.</p></div>`;
+    $('#nearby-grid').innerHTML = `<div class="state"><h3>Não conseguimos acessar o mapa</h3><p>Verifique sua internet e tente de novo. A lista com todos os GCs continua logo abaixo.</p></div>`;
   } finally { ocupado(false); }
 }
 
@@ -818,7 +818,7 @@ async function irParaSugestao(sug) {
     await prepararDistancias();
     aplicarPosicao(sug.pos, `A partir de “${sug.titulo}”`);
   } catch {
-    $('#nearby-grid').innerHTML = `<div class="state"><h3>Sem conexão</h3><p>Verifique sua internet e tente de novo.</p></div>`;
+    $('#nearby-grid').innerHTML = `<div class="state"><h3>Não conseguimos acessar o mapa</h3><p>Verifique sua internet e tente de novo. A lista com todos os GCs continua logo abaixo.</p></div>`;
   } finally { ocupado(false); }
 }
 
@@ -944,7 +944,9 @@ async function painelAdmin() {
 /* ════════════════════════════════════════════════════════════════
    INÍCIO
    ════════════════════════════════════════════════════════════════ */
-$('#search-form').addEventListener('submit', buscarEndereco);
+// Clique e Enter tratados direto (sem envio de formulário, que alguns navegadores e prévias bloqueiam)
+$('#btn-buscar').addEventListener('click', buscarEndereco);
+$('#address-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented) buscarEndereco(e); });
 $('#btn-geo').addEventListener('click', usarLocalizacao);
 $('#btn-clear').addEventListener('click', limparBusca);
 $('#q').addEventListener('input', (e) => { filtro.q = e.target.value; renderLista(); });
