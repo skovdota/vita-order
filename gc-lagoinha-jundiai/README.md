@@ -7,6 +7,7 @@ Site estático para **gc.lagoinhajundiai.com.br**. A pessoa digita o endereço o
 | Arquivo | Para quê |
 |---|---|
 | `index.html` | O site inteiro (visual e código num arquivo só) |
+| `config.js` | Chave do Mapbox (não vai para o GitHub; envie para a hospedagem) |
 | `gcs-backup.csv` | Cópia da planilha, usada se o Google estiver fora do ar |
 | `logo.png` | *(opcional)* Envie o logo da igreja com esse nome. Se não houver, aparece um “L” |
 
@@ -53,7 +54,7 @@ Quando cadastrar um GC novo, repita o processo ou preencha só a linha nova. Par
 
 ## 4. Publicar na hospedagem
 
-Envie `index.html`, `gcs-backup.csv` e `logo.png` para a pasta raiz do subdomínio `gc.lagoinhajundiai.com.br` (FTP ou gerenciador de arquivos do painel). Não precisa de banco de dados, PHP ou build.
+Envie `index.html`, `config.js`, `gcs-backup.csv` e `logo.png` para a pasta raiz do subdomínio `gc.lagoinhajundiai.com.br` (FTP ou gerenciador de arquivos do painel). Não precisa de banco de dados, PHP ou build.
 
 O subdomínio precisa de **HTTPS** (SSL ativo). Sem ele, o navegador bloqueia o botão “Usar minha localização”.
 
@@ -62,8 +63,17 @@ O subdomínio precisa de **HTTPS** (SSL ativo). Sem ele, o navegador bloqueia o 
 - `MOSTRAR_ENDERECO: false`: mostra só bairro e cidade. O endereço completo passa a ser dado pelo líder no WhatsApp. Pense nisso, porque são casas de famílias com o telefone ao lado.
 - `MENSAGEM_WHATSAPP`: texto que já vem escrito quando a pessoa abre o WhatsApp.
 
-## Serviços externos (gratuitos, sem chave)
+## Mapbox
 
-- **Photon / OpenStreetMap**: transforma endereço em coordenada (com Nominatim como reserva).
+A busca de quem visita o site usa o **Mapbox**: sugere endereços enquanto a pessoa digita e localiza com mais precisão. A chave fica no arquivo `config.js` (modelo em `config.example.js`). Ele fica fora do GitHub, que bloqueia chaves no código, mas **precisa ser enviado para a hospedagem** junto com o `index.html`.
+
+1. No painel do Mapbox, em **Tokens**, edite a chave e, em **URL restrictions**, adicione `https://gc.lagoinhajundiai.com.br`. Assim ninguém consegue usar a chave em outro site.
+2. A busca é temporária: nada do Mapbox é salvo. Por isso as coordenadas dos GCs (colunas LAT/LNG) continuam vindo do OpenStreetMap ou do Google Maps, como no passo 3. Os termos do Mapbox não permitem guardar resultados do plano gratuito.
+3. Se o Mapbox falhar ou a chave for removida, o site volta sozinho para o OpenStreetMap.
+
+## Serviços externos
+
+- **Mapbox**: busca e sugestões do endereço do visitante.
+- **Photon / OpenStreetMap**: localiza os GCs sem LAT/LNG e serve de reserva (com Nominatim).
 - **ViaCEP**: quando a pessoa digita só o CEP.
 - **Google Fonts**: tipografia (Sora e Plus Jakarta Sans).
